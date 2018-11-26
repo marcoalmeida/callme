@@ -9,7 +9,7 @@ Optional parameters like the HTTP method to use, payload to send, expected HTTP 
 number of retries, and maximum acceptable delay can also be set.
 
 ### Simple usage examples
-* Schedule a request to `http://example.com/that-thing/run-it` to happen 6 hours from now as a simple `GET` 
+* Schedule a task on `http://example.com/that-thing/run-it` to happen 6 hours from now as a simple `GET` 
 with no request body, and expecting `200` to be the server's response: 
   ```
   curl -XPUT -H "Content-Type: application/json" \
@@ -19,10 +19,10 @@ with no request body, and expecting `200` to be the server's response:
 
 * Retrieve the state of the scheduled task:
   ```
-  curl -XGET -H "Content-Type: application/json" callme:6777/task/simpletask?pretty
+  curl -XGET callme:6777/task/simpletask?pretty
   ```
 
-### Advanced exampled
+### Advanced examples
 * Schedule two tasks on `http://example.com/far-far-away` for midnight and 01:00am on 2028-11-26, expecting the 
 response status code to be `204`:
   ```
@@ -36,17 +36,17 @@ response status code to be `204`:
 
 * Retrieve the state of both scheduled tasks:
   ```
-  curl -XGET -H "Content-Type: application/json" callme:6777/task/faraway?pretty
+  curl -XGET callme:6777/task/faraway?pretty
   ```
 
 * Retrieve the state of the task scheduled for midnight:
   ```
-  curl -XGET -H "Content-Type: application/json" callme:6777/task/faraway@1858809600?pretty
+  curl -XGET callme:6777/task/faraway@1858809600?pretty
   ```
   
 * Retrieve the state of *all* scheduled tasks:
   ```
-  curl -XGET -H "Content-Type: application/json" callme:6777/task/?pretty
+  curl -XGET callme:6777/task/?pretty
   ```
 
 ### JSON payload for a task definition
@@ -59,8 +59,7 @@ response status code to be `204`:
 | `payload` | string | No | "" | Payload to send with the request to the `callback` endpoint. |
 | `expected_http_status` | integer | No | 200 | HTTP status code the server is expected to respond with on a successful request to `callback`. |
 | `retry` | integer | No | 1 | Maximum number of times to retry failed requests to `callback` before marking the task as failed. |
-| `max_delay` | integer | No | 10min | Do not make a request to `callback` if only starting it `max_delay` or more 
-minutes after `trigger_at` |
+| `max_delay` | integer | No | 10min | Do not make a request to `callback` if `max_delay` (or more) minutes have passed since `trigger_at` |
 
 ### API reference
 * Create a new scheduled task:

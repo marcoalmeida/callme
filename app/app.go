@@ -54,6 +54,7 @@ type Status struct {
 	Next task.Task `json:"next"`
 }
 
+// New creates and returns a pointer to a new CallMe instance
 func New(logger *zap.Logger) *CallMe {
 	// set defaults
 	cm := &CallMe{
@@ -135,7 +136,7 @@ func (c *CallMe) Run() {
 			for _, item := range result.Items {
 				tsk := c.taskFromDynamoDB(item)
 				// TODO: worker pool
-				go tsk.Callback(c.httpClient, c.UpsertTask, c.Logger)
+				go tsk.DoCallback(c.httpClient, c.UpsertTask, c.Logger)
 			}
 		}
 
@@ -193,7 +194,7 @@ func (c *CallMe) Catchup() {
 						zap.String("task", t.String()),
 					)
 					// TODO: worker pool
-					go t.Callback(c.httpClient, c.UpsertTask, c.Logger)
+					go t.DoCallback(c.httpClient, c.UpsertTask, c.Logger)
 				}
 			}
 
@@ -206,10 +207,13 @@ func (c *CallMe) Catchup() {
 	}
 }
 
-func (c *CallMe) CreateTask(tsk task.Task) error {
-	c.Logger.Debug("Creating task", zap.String("task", tsk.String()))
+func (c *CallMe) CreateTask(t task.Task) (string, error) {
+	c.Logger.Debug("Creating task", zap.String("task", t.String()))
 
-	return c.UpsertTask(tsk)
+	t.NormalizeTriggerAt()
+	t.NormalizeTag()
+
+	return c.UpsertTask(t)
 }
 
 // Reschedule creates new entries for tasks that failed. It may be applied to a specific instance of a give task,
@@ -260,7 +264,7 @@ func (c *CallMe) Reschedule(tsk task.Task, triggerAt string, all bool) ([]task.T
 	// update the trigger_at timestamp and upsert it to keep the exact same parameters we had before
 	for i := 0; i < len(tasks); i++ {
 		tasks[i].TriggerAt = triggerAt
-		err := c.UpsertTask(tasks[i])
+		_, err := c.UpsertTask(tasks[i])
 		if err != nil {
 			return nil, err
 		}
@@ -440,12 +444,13 @@ func (c *CallMe) statusAllTasks(startFrom task.Task, futureOnly bool) (Status, e
 	return status, nil
 }
 
-// UpsertTask adds or replaces a task in DynamoDB
-func (c *CallMe) UpsertTask(tsk task.Task) error {
+// UpsertTask adds or replaces a task in DynamoDB. It returns a string that uniquely identifies
+// the task and may be used to query its status or an error.
+func (c *CallMe) UpsertTask(tsk task.Task) (string, error) {
 	item, err := dynamodbattribute.MarshalMap(tsk)
 	if err != nil {
 		c.Logger.Error("Failed to update task on DynamoDB: MapMarshal", zap.Error(err))
-		return errors.New("invalid JSON")
+		return "", errors.New("invalid JSON")
 	}
 
 	input := &dynamodb.PutItemInput{
@@ -456,11 +461,11 @@ func (c *CallMe) UpsertTask(tsk task.Task) error {
 	if err != nil {
 		msg := "Failed to store task"
 		c.Logger.Error(msg, zap.Error(err), zap.String("task", tsk.String()))
-		return errors.New(strings.ToLower(msg))
+		return "", errors.New(strings.ToLower(msg))
 	}
 
 	c.Logger.Debug("Successfully upserted task", zap.String("task", tsk.String()))
-	return nil
+	return tsk.UniqueID(), nil
 }
 
 // create a Task instance from a DynamoDB Item

@@ -15,17 +15,11 @@ import (
 	"go.uber.org/zap"
 )
 
-// ResponseBody contains the necessary data to send an HTTP response back to the client. It should
+// Response contains the necessary data to send an HTTP response back to the client. It should
 // be an interface that needs to be JSON-serialized before sending.
 type Response struct {
 	status int
 	data   interface{}
-}
-
-// Message provides a simple way of defining a response message that can easily be attached to ResponseBody
-type message struct {
-	Message string `json:"message,omitempty"`
-	Error   string `json:"error,omitempty"`
 }
 
 // Handler is used to set up all of the handlers in the basic environment on which we're service traffic
@@ -99,15 +93,6 @@ func taskHandler(callme *app.CallMe, r *http.Request) *Response {
 		return internalServerError(err.Error())
 	}
 
-	// get the task name from the URL path
-	taskName := r.URL.Path[len("/task/"):]
-	if taskName == "" {
-		return &Response{
-			status: http.StatusBadRequest,
-			data:   message{Error: "task not found"},
-		}
-	}
-
 	defer r.Body.Close()
 	payload, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -116,40 +101,28 @@ func taskHandler(callme *app.CallMe, r *http.Request) *Response {
 	}
 
 	switch r.Method {
+	case "GET":
+		// TODO:
+		return &Response{
+			status: http.StatusNotImplemented,
+			data:   message{Error: "not yet implemented"},
+		}
 	case "PUT":
-		// create a new Task instance
-		t := task.Task{}
-
+		// new, empty instance
+		t := task.New()
 		// load the user provided data on to it
 		err := json.Unmarshal(payload, &t)
 		if err != nil {
-			callme.Logger.Error("Failed to unmarshal request", zap.Error(err), zap.String("task_name", taskName))
-			// this err is safe (and useful) to return to the client
+			// this error is safe (and useful) to return to the client
 			return badRequestError(err.Error())
 		}
-
-		// the task name is provided in the URL, not the JSON payload
-		t.Tag = taskName
-
-		// validate required fields
+		// validate input data
 		err = t.IsValid()
 		if err != nil {
 			return badRequestError(err.Error())
 		}
 
-		// unmarshal will leave the .TriggerAt field with whatever value the user set,
-		// which may be a relative time specification;
-		// we parse it here so that a well defined Task instance is passed on to callme.CreateTask
-		triggerAt, err := parseTriggerAt(t.TriggerAt)
-		if err != nil {
-			return badRequestError(err.Error())
-		}
-		t.TriggerAt = triggerAt
-
-		// set defaults on all missing fields
-		t.SetDefaults()
-
-		err = callme.CreateTask(t)
+		id, err := callme.CreateTask(t)
 		if err != nil {
 			callme.Logger.Error("Failed to create task", zap.Error(err))
 			return internalServerError(err.Error())
@@ -157,7 +130,13 @@ func taskHandler(callme *app.CallMe, r *http.Request) *Response {
 
 		return &Response{
 			status: http.StatusOK,
-			data:   message{Message: "task successfully registered"},
+			data:   createTaskResponse{TaskID: id},
+		}
+	case "POST":
+		// TODO: (update)
+		return &Response{
+			status: http.StatusNotImplemented,
+			data:   message{Error: "not yet implemented"},
 		}
 	case "DELETE":
 		// TODO:
@@ -282,6 +261,7 @@ func statusHandler(callme *app.CallMe, r *http.Request) *Response {
 	}
 }
 
+// TODO: deprecate
 // given a task key of the form task_name@trigger_at, where trigger_at is optional,
 // parse it and return the individual components
 func parseTaskIdentifier(taskKey string) (string, string) {
@@ -312,7 +292,8 @@ func parseTriggerAt(input string) (string, error) {
 	relative := input[:1] == "+"
 	if relative {
 		// validate the input
-		re := regexp.MustCompile("[+]([0-9]+)([mhd])")
+		// re := regexp.MustCompile(task.ValidTriggerAtRE)
+		re := regexp.MustCompile("")
 		parts := re.FindStringSubmatch(input)
 		if len(parts) != 3 {
 			return "", errors.New("invalid relative time specification")

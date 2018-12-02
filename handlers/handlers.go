@@ -279,7 +279,7 @@ func parseTaskIdentifier(taskKey string) (string, string) {
 // if input is a relative time specification, return the corresponding Unix timestamp with 1-minute resolution
 // if the input provided is already a unix timestamp, ensure it uses 1-minute resolution
 func parseTriggerAt(input string) (string, error) {
-	// future Unix timestamps have way more than 3 characters
+	// Unix timestamps (maybe not 30 years ago, but now) have way more than 3 characters
 	// a valid format is of the form `+<int><time_identifier>` which cannot be less than 3 chars
 	if len(input) < 3 {
 		return "", errors.New("invalid format for trigger_at: " + input)
@@ -300,6 +300,7 @@ func parseTriggerAt(input string) (string, error) {
 		}
 		// extract the relative time and compute the corresponding Unix time stamp
 		spec := parts[2]
+		// if the regexp matches Atoi should never fail, still
 		inputTime, err := strconv.Atoi(parts[1])
 		if err != nil {
 			return "", errors.New("invalid integer in relative time specification")
@@ -311,8 +312,10 @@ func parseTriggerAt(input string) (string, error) {
 		case "h":
 			return strconv.FormatInt(now+int64(inputTime)*3600, 10), nil
 		case "d":
-			return strconv.FormatInt(now+int64(inputTime)*60*86400, 10), nil
+			return strconv.FormatInt(now+int64(inputTime)*86400, 10), nil
 		default:
+			// we should never reach this because either the regexp matches and the string is successfully parsed,
+			// or it does not and we exit before this block
 			return "", errors.New("unknown relative time specifier")
 		}
 	} else {

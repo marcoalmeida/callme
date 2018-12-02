@@ -35,18 +35,20 @@ func Test_parseTriggerOn(t *testing.T) {
 
 	// valid relative time
 	currentMinute := util.GetUnixMinute()
-	// 10 minutes from now
-	expect := currentMinute + 600
-	at, err := parseTriggerAt("+10m")
-	if err != nil {
-		t.Error("Expected to succeed (relative time), failed with", err)
-	}
-	if at != strconv.FormatInt(expect, 10) {
-		t.Error("Expected", expect, "got", at)
+	// 1 day from now
+	expect := currentMinute + 86400
+	for _, relativeTime := range []string{"+1d", "+24h", "+1440m"} {
+		at, err := parseTriggerAt(relativeTime)
+		if err != nil {
+			t.Error("Expected to succeed with relative time", relativeTime, "failed with", err)
+		}
+		if at != strconv.FormatInt(expect, 10) {
+			t.Error("Expected", expect, "got", at)
+		}
 	}
 
-	// with bad input
-	for _, input := range []string{"", "+", "+m", "+6", "6h", "+6z"} {
+	// error: bad input
+	for _, input := range []string{"", "+", "+m", "+6", "6h", "+6z", "+1k", "112a"} {
 		tm, err := parseTriggerAt(input)
 		if err == nil {
 			t.Error("Expected to fail with bad input", input, ", succeeded returning", tm)

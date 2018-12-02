@@ -12,8 +12,8 @@ fmt: $(SRC)
 
 .PHONY: test
 test: $(SRC_TEST)
-	$(foreach file, $^, cd $(dir $(file)) && go test -coverprofile=coverage.out; cd ..;)
+	go test -coverprofile=coverage.out ./...
 
 .PHONY: coverage
 coverage: test
-	$(foreach file, $^, cd $(dir $(file)) && go tool cover -html=coverage.out; cd ..;)
+	go tool cover -html=coverage.out

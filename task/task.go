@@ -129,14 +129,13 @@ func (t *Task) NormalizeTriggerAt() {
 	parts := reValidTriggerAt.FindStringSubmatch(t.TriggerAt)
 	spec := parts[2]
 	inputTime, _ := strconv.Atoi(parts[1])
-
 	switch spec {
 	case "m":
 		t.TriggerAt = strconv.FormatInt(now+int64(inputTime)*60, 10)
 	case "h":
 		t.TriggerAt = strconv.FormatInt(now+int64(inputTime)*3600, 10)
 	case "d":
-		t.TriggerAt = strconv.FormatInt(now+int64(inputTime)*60*86400, 10)
+		t.TriggerAt = strconv.FormatInt(now+int64(inputTime)*86400, 10)
 	}
 }
 

@@ -12,22 +12,22 @@ import (
 )
 
 const (
-	Pending                    = "pending"
-	Running                    = "running"
-	Successful                 = "successful"
-	Failed                     = "failed"
-	Skipped                    = "skipped"
-	defaultCallbackMethod            = "GET"
-	defaultRetry                     = 1
-	defaultExpectedHTTPStatus        = 200
-	defaultMaxDelay                  = 10
+	Pending                   = "pending"
+	Running                   = "running"
+	Successful                = "successful"
+	Failed                    = "failed"
+	Skipped                   = "skipped"
+	defaultCallbackMethod     = "GET"
+	defaultRetry              = 1
+	defaultExpectedHTTPStatus = 200
+	defaultMaxDelay           = 10
 	// maximum number of bytes from the response to store
 	maxResponseBytes = 256
 )
 
 type Task struct {
 	TriggerAt          string `json:"trigger_at"`
-	Name               string `json:"task_name"`
+	Tag                string `json:"task_name"`
 	Payload            string `json:"payload,omitempty"`
 	CallbackEndpoint   string `json:"callback"`
 	CallbackMethod     string `json:"callback_method,omitempty"`
@@ -41,11 +41,11 @@ type Task struct {
 }
 
 func (t Task) String() string {
-	return fmt.Sprintf("%s@%s -> %s", t.Name, t.TriggerAt, t.CallbackEndpoint)
+	return fmt.Sprintf("%s@%s -> %s", t.Tag, t.TriggerAt, t.CallbackEndpoint)
 }
 
 func (t Task) IsValid() error {
-	if t.TriggerAt == "" || t.Name == "" || t.CallbackEndpoint == "" {
+	if t.TriggerAt == "" || t.Tag == "" || t.CallbackEndpoint == "" {
 		return errors.New("incomplete task definition, required fields missing: trigger_at, task_name, callback")
 	}
 

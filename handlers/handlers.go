@@ -129,7 +129,7 @@ func taskHandler(callme *app.CallMe, r *http.Request) *Response {
 		}
 
 		// the task name is provided in the URL, not the JSON payload
-		t.Name = taskName
+		t.Tag = taskName
 
 		// validate required fields
 		err = t.IsValid()
@@ -190,7 +190,7 @@ func rescheduleHandler(callme *app.CallMe, r *http.Request) *Response {
 	// create a task instance, or part of it if the trigger timestamp is missing, out of the URL path
 	taskName, triggerAt := parseTaskIdentifier(taskParam)
 	tsk := task.Task{
-		Name:      taskName,
+		Tag:       taskName,
 		TriggerAt: triggerAt,
 	}
 
@@ -204,7 +204,7 @@ func rescheduleHandler(callme *app.CallMe, r *http.Request) *Response {
 		if err != nil {
 			return &Response{
 				status: http.StatusBadRequest,
-				data:   message{Error:err.Error()},
+				data:   message{Error: err.Error()},
 			}
 		}
 	}
@@ -253,13 +253,13 @@ func statusHandler(callme *app.CallMe, r *http.Request) *Response {
 	// create a task instance, or part of it if the trigger timestamp is missing, out of the URL path
 	taskName, triggerAt := parseTaskIdentifier(taskParam)
 	tsk := task.Task{
-		Name:      taskName,
+		Tag:       taskName,
 		TriggerAt: triggerAt,
 	}
 	// create a task instance from the start_from parameter, necessary for pagination
 	taskName, triggerAt = parseTaskIdentifier(r.Form.Get("start_from"))
 	startFrom := task.Task{
-		Name:      taskName,
+		Tag:       taskName,
 		TriggerAt: triggerAt,
 	}
 	// in case the caller just wants us to list tasks scheduled at some point in the future

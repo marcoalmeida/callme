@@ -51,7 +51,7 @@ type CallMe struct {
 type Status struct {
 	Tasks []task.Task `json:"tasks"`
 	// TODO: make this easier for the client, something that just be directly passed to the next call
-	Next  task.Task   `json:"next"`
+	Next task.Task `json:"next"`
 }
 
 func New(logger *zap.Logger) *CallMe {
@@ -220,7 +220,7 @@ func (c *CallMe) CreateTask(tsk task.Task) error {
 func (c *CallMe) Reschedule(tsk task.Task, triggerAt string, all bool) ([]task.Task, error) {
 	tasks := make([]task.Task, 0)
 
-	if tsk.TriggerAt != "" && tsk.Name != "" {
+	if tsk.TriggerAt != "" && tsk.Tag != "" {
 		// single task at a specific time -- we can re-use statusByTaskKey
 		status, err := c.statusByTaskKey(tsk)
 		if err != nil {
@@ -275,12 +275,12 @@ func (c *CallMe) Reschedule(tsk task.Task, triggerAt string, all bool) ([]task.T
 // It also allows to filter out all past entries if futureOnly is set to true.
 func (c *CallMe) Status(tsk task.Task, startFrom task.Task, futureOnly bool) (Status, error) {
 	// single task at a specific time -- we can collect the status with a simple call to GetItem
-	if tsk.TriggerAt != "" && tsk.Name != "" {
+	if tsk.TriggerAt != "" && tsk.Tag != "" {
 		return c.statusByTaskKey(tsk)
 	}
 
 	// single task, but all entries -- we can use the inverted index and Query the table, avoiding a Scan
-	if tsk.Name != "" {
+	if tsk.Tag != "" {
 		return c.statusByTaskName(tsk, startFrom, futureOnly)
 	}
 
@@ -296,7 +296,7 @@ func (c *CallMe) statusByTaskKey(tsk task.Task) (Status, error) {
 		TableName: aws.String(c.DynamoDBTable),
 		Key: map[string]*dynamodb.AttributeValue{
 			"trigger_at": {S: aws.String(tsk.TriggerAt)},
-			"task_name":  {S: aws.String(tsk.Name)},
+			"task_name":  {S: aws.String(tsk.Tag)},
 		},
 	}
 	result, err := c.ddb.GetItem(input)
@@ -304,7 +304,7 @@ func (c *CallMe) statusByTaskKey(tsk task.Task) (Status, error) {
 		c.Logger.Error(
 			"Failed to get task status",
 			zap.Error(err),
-			zap.String("task_name", tsk.Name),
+			zap.String("task_name", tsk.Tag),
 			zap.String("trigger_at", tsk.TriggerAt))
 		return Status{}, errors.New("failed to retrieve the task's status")
 	}
@@ -328,7 +328,7 @@ func (c *CallMe) statusByTaskName(tsk task.Task, startFrom task.Task, futureOnly
 		IndexName: aws.String(c.DynamoDBIndex),
 		ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
 			":name": {
-				S: aws.String(tsk.Name),
+				S: aws.String(tsk.Tag),
 			},
 		},
 		KeyConditionExpression: aws.String("task_name = :name"),
@@ -344,9 +344,9 @@ func (c *CallMe) statusByTaskName(tsk task.Task, startFrom task.Task, futureOnly
 	}
 
 	// we may be paginating this
-	if startFrom.TriggerAt != "" && startFrom.Name != "" {
+	if startFrom.TriggerAt != "" && startFrom.Tag != "" {
 		input.ExclusiveStartKey = map[string]*dynamodb.AttributeValue{
-			"task_name":  {S: aws.String(startFrom.Name)},
+			"task_name":  {S: aws.String(startFrom.Tag)},
 			"trigger_at": {S: aws.String(startFrom.TriggerAt)},
 		}
 	}
@@ -356,7 +356,7 @@ func (c *CallMe) statusByTaskName(tsk task.Task, startFrom task.Task, futureOnly
 		c.Logger.Error(
 			"Failed to Query the status of a task by name",
 			zap.Error(err),
-			zap.String("task_name", tsk.Name),
+			zap.String("task_name", tsk.Tag),
 			zap.Bool("future_only", futureOnly),
 		)
 		return status, errors.New("failed to retrieve the task's status")
@@ -401,9 +401,9 @@ func (c *CallMe) statusAllTasks(startFrom task.Task, futureOnly bool) (Status, e
 	}
 
 	// we may be paginating this
-	if startFrom.TriggerAt != "" && startFrom.Name != "" {
+	if startFrom.TriggerAt != "" && startFrom.Tag != "" {
 		input.ExclusiveStartKey = map[string]*dynamodb.AttributeValue{
-			"task_name":  {S: aws.String(startFrom.Name)},
+			"task_name":  {S: aws.String(startFrom.Tag)},
 			"trigger_at": {S: aws.String(startFrom.TriggerAt)},
 		}
 	}

@@ -12,15 +12,15 @@ import (
 )
 
 const (
-	Pending                    = "pending"
-	Running                    = "running"
-	Successful                 = "successful"
-	Failed                     = "failed"
-	Skipped                    = "skipped"
-	defaultCallbackMethod            = "GET"
-	defaultRetry                     = 1
-	defaultExpectedHTTPStatus        = 200
-	defaultMaxDelay                  = 10
+	Pending                   = "pending"
+	Running                   = "running"
+	Successful                = "successful"
+	Failed                    = "failed"
+	Skipped                   = "skipped"
+	defaultCallbackMethod     = "GET"
+	defaultRetry              = 1
+	defaultExpectedHTTPStatus = 200
+	defaultMaxDelay           = 10
 	// maximum number of bytes from the response to store
 	maxResponseBytes = 256
 )

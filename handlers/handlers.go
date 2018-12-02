@@ -204,7 +204,7 @@ func rescheduleHandler(callme *app.CallMe, r *http.Request) *Response {
 		if err != nil {
 			return &Response{
 				status: http.StatusBadRequest,
-				data:   message{Error:err.Error()},
+				data:   message{Error: err.Error()},
 			}
 		}
 	}

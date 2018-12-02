@@ -51,7 +51,7 @@ type CallMe struct {
 type Status struct {
 	Tasks []task.Task `json:"tasks"`
 	// TODO: make this easier for the client, something that just be directly passed to the next call
-	Next  task.Task   `json:"next"`
+	Next task.Task `json:"next"`
 }
 
 func New(logger *zap.Logger) *CallMe {

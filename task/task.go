@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/marcoalmeida/callme/types"
 	"github.com/marcoalmeida/callme/util"
 	"go.uber.org/zap"
 )
@@ -35,10 +36,13 @@ const (
 var reValidTriggerAt = regexp.MustCompile("[+]([0-9]+)([mhd])")
 var reValidTag = regexp.MustCompile("[a-zA-Z0-9]*")
 
-// Task represents a unit of work to be executed at some point in the future
+// Task represents a unit of work to be executed at some point in the future.
+// It should directly map to a row in DynamoDB
 type Task struct {
-	TriggerAt          string `json:"trigger_at"`
+	TriggerAt          string `json:"trigger_at"` // hash key
+	UUID               string `json:"uuid"`
 	Tag                string `json:"tag,omitempty"`
+	TagUUID            string `json:"tag_uuid"` // range key
 	Payload            string `json:"payload,omitempty"`
 	CallbackEndpoint   string `json:"callback"`
 	CallbackMethod     string `json:"callback_method,omitempty"`
@@ -51,9 +55,36 @@ type Task struct {
 	ExecutedAt         string `json:"executed_at,omitempty"`
 }
 
+// New returns a new Task instance with default values set
 func New() Task {
 	t := Task{}
+
+	// make sure all optional fields are set
 	t.setDefaults()
+
+	// generate a UUID for this task
+	u := uuid.New()
+	// remove the - characters from the UUID
+	t.UUID = strings.Replace(u.String(), "-", "", -1)
+
+	return t
+}
+
+// NewFromCreateRequest returns a new Task instance with all fields initialized with the values set on tr.
+func NewFromCreateRequest(tr types.CreateTaskRequest) Task {
+	t := New()
+
+	t.TriggerAt = tr.TriggerAt
+	t.Tag = tr.Tag
+	t.Payload = tr.Payload
+	t.CallbackEndpoint = tr.CallbackEndpoint
+	t.CallbackMethod = tr.CallbackMethod
+	t.Retry = tr.Retry
+	t.ExpectedHTTPStatus = tr.ExpectedHTTPStatus
+	t.MaxDelay = tr.MaxDelay
+
+	t.setDefaults()
+
 	return t
 }
 
@@ -61,18 +92,36 @@ func (t Task) String() string {
 	return fmt.Sprintf("%s -> %s", t.UniqueID(), t.CallbackEndpoint)
 }
 
-func (t Task) UniqueID() string {
-	return fmt.Sprintf("%s%s%s", t.Tag, delimiterUniqueID, t.TriggerAt)
+// PrepareForDynamoDB updates all the necessary fields so that the Task instance is ready for being
+// written to DynamoDB
+func (t *Task) PrepareForDynamoDB() {
+	// right now only the range key needs to be set, as we're using .TriggerAt as the hash key
+	t.TagUUID = fmt.Sprintf("%s%s%s", t.Tag, delimiterTagUUID, t.UUID)
 }
 
-// isValidTriggerAt returns nil iff ts is a valid time definition, i.e.,
-// a Unix epoch timestamp (with 1-minute resolution) or a relative time specification of the form
-// +<int><time_identifier>.
-func isValidTriggerAt(ts string) error {
-	// future Unix timestamps have way more than 3 characters;
+// UniqueID returns a string that uniquely identifies a task
+func (t Task) UniqueID() string {
+	return fmt.Sprintf("%s%s%s", t.TagUUID, delimiterUniqueID, t.TriggerAt)
+}
+
+func ParseUniqueID(id string) (Task, error) {
+	parts := strings.Split(id, delimiterUniqueID)
+	if len(parts) != 2 {
+		return Task{}, errors.New("expected exactly 2 components on the unique ID")
+	}
+
+	return Task{TriggerAt: parts[1], Tag: parts[0]}, nil
+}
+
+// NormalizeTriggerAt makes sure the .TriggerAt field is a valid Unix timestamp with 1-minute resolution.
+// The input is validated and if a relative time specification the exact target time is calculated
+// and the field updated.
+// An error is returned it if the input is not valid.
+func (t *Task) NormalizeTriggerAt() error {
+	// Unix timestamps (now and in the future) have way more than 3 characters;
 	// a valid format is of the form `+<int><time_identifier>`;
-	// neither can be less than 3 chars
-	if len(ts) < 3 {
+	// neither form can be less than 3 chars
+	if len(t.TriggerAt) < 3 {
 		return errors.New("invalid time specification")
 	}
 
@@ -81,16 +130,24 @@ func isValidTriggerAt(ts string) error {
 
 	// are we being given a Unix time stamp or a relative time format?
 	// relative time specifications start with +
-	relative := ts[:1] == "+"
+	relative := t.TriggerAt[:1] == "+"
 	if relative {
-		parts := reValidTriggerAt.FindStringSubmatch(ts)
-		if len(parts) != 3 {
+		parts := reValidTriggerAt.FindStringSubmatch(t.TriggerAt)
+		spec := parts[2]
+		inputTime, _ := strconv.Atoi(parts[1])
+		switch spec {
+		case "m":
+			t.TriggerAt = strconv.FormatInt(now+int64(inputTime)*60, 10)
+		case "h":
+			t.TriggerAt = strconv.FormatInt(now+int64(inputTime)*3600, 10)
+		case "d":
+			t.TriggerAt = strconv.FormatInt(now+int64(inputTime)*86400, 10)
+		default:
 			return errors.New("relative time specification does not match " + reValidTriggerAt.String())
-
 		}
 	} else {
-		// ts is a Unix time stamp
-		inputTime, err := strconv.Atoi(ts)
+		// triggerAt is a Unix time stamp --> check for errors
+		inputTime, err := strconv.Atoi(t.TriggerAt)
 		if err != nil {
 			return errors.New("invalid Unix timestamp")
 		}
@@ -104,10 +161,55 @@ func isValidTriggerAt(ts string) error {
 		}
 	}
 
+	// all good
 	return nil
 }
 
-// isValidTag returns nil iff tag is valid, i.e., an arbitrary alphanumeric string
+//// isValidTriggerAt returns nil iff triggerAt is a valid time specification
+//func isValidTriggerAt(triggerAt string) error {
+//	// Unix timestamps (now and in the future) have way more than 3 characters;
+//	// a valid format is of the form `+<int><time_identifier>`;
+//	// neither form can be less than 3 chars
+//	if len(triggerAt) < 3 {
+//		return errors.New("invalid time specification")
+//	}
+//
+//	// current minute
+//	now := util.GetUnixMinute()
+//
+//	// are we being given a Unix time stamp or a relative time format?
+//	// relative time specifications start with +
+//	relative := triggerAt[:1] == "+"
+//	if relative {
+//		parts := reValidTriggerAt.FindStringSubmatch(triggerAt)
+//		if len(parts) != 3 {
+//			return errors.New("relative time specification does not match " + reValidTriggerAt.String())
+//		}
+//		_, err := strconv.Atoi(parts[1])
+//		if err != nil {
+//			return errors.New("invalid relative time: " +  err.Error())
+//		}
+//	} else {
+//		// triggerAt is a Unix time stamp --> check for errors
+//		inputTime, err := strconv.Atoi(triggerAt)
+//		if err != nil {
+//			return errors.New("invalid Unix timestamp")
+//		}
+//		// enforce time with 1-minute resolution
+//		if inputTime%60 != 0 {
+//			return errors.New("timestamp must be on 1-minute resolution")
+//		}
+//		// make sure it's in the future
+//		if int64(inputTime) <= now {
+//			return errors.New("timestamp must be in the future")
+//		}
+//	}
+//
+//	// all good
+//	return nil
+//}
+
+// validateTag returns nil iff tag is an alphanumeric string
 func isValidTag(tag string) error {
 	if len(reValidTag.FindAllString(tag, -1)) != 1 {
 		return errors.New("invalid tag: does not match " + reValidTag.String())
@@ -116,51 +218,12 @@ func isValidTag(tag string) error {
 	return nil
 }
 
-// NormalizeTriggerAt ensures the value of the .TriggerAt field is a Unix timestamp.
-// It should only be called if isValidTriggerAt returns nil as there is no error handling.
-func (t *Task) NormalizeTriggerAt() {
-	// if trigger_at is already a Unix timestamp there's nothing to do
-	if t.TriggerAt[:1] != "+" {
-		return
-	}
-	// current minute
-	now := util.GetUnixMinute()
-
-	parts := reValidTriggerAt.FindStringSubmatch(t.TriggerAt)
-	spec := parts[2]
-	inputTime, _ := strconv.Atoi(parts[1])
-	switch spec {
-	case "m":
-		t.TriggerAt = strconv.FormatInt(now+int64(inputTime)*60, 10)
-	case "h":
-		t.TriggerAt = strconv.FormatInt(now+int64(inputTime)*3600, 10)
-	case "d":
-		t.TriggerAt = strconv.FormatInt(now+int64(inputTime)*86400, 10)
-	}
-}
-
-// NormalizeTag ensures uniqueness of the pair (trigger_at,
-// tag) by appending a UUID to the value originally set by the user.
-func (t *Task) NormalizeTag() {
-	u := uuid.New()
-	// a normalized tag is of the form tag+UUID
-	// remove the - characters from the UUID
-	t.Tag = fmt.Sprintf("%s%s%s", t.Tag, delimiterTagUUID, strings.Replace(u.String(), "-", "", -1))
-}
-
-func ParseUniqueID(id string) (Task, error) {
-	parts := strings.Split(id, delimiterUniqueID)
-	if len(parts) != 2 {
-		return Task{}, errors.New("expected exactly 2 components on the unique ID")
-	}
-
-	return Task{TriggerAt: parts[1], Tag: parts[0]}, nil
-}
-
-// IsValid returns nil iff all fields in the task t are valid.
-func (t Task) IsValid() error {
+// ValidateAndNormalize returns nil iff all fields in the task are valid.
+// It also normalizes the .TriggerAt field converting it, if necessary, from a relative time
+// specification into a Unix timestamp.
+func (t Task) ValidateAndNormalize() error {
 	// make sure the timestamp is valid
-	if err := isValidTriggerAt(t.TriggerAt); err != nil {
+	if err := t.NormalizeTriggerAt(); err != nil {
 		return err
 	}
 	// make sure the tag is valid

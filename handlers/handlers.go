@@ -11,6 +11,7 @@ import (
 
 	"github.com/marcoalmeida/callme/app"
 	"github.com/marcoalmeida/callme/task"
+	"github.com/marcoalmeida/callme/types"
 	"github.com/marcoalmeida/callme/util"
 	"go.uber.org/zap"
 )
@@ -69,21 +70,21 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func internalServerError(msg string) *Response {
 	return &Response{
 		status: http.StatusInternalServerError,
-		data:   message{Error: msg},
+		data:   types.BasicResponse{Error: msg},
 	}
 }
 
 func badRequestError(msg string) *Response {
 	return &Response{
 		status: http.StatusBadRequest,
-		data:   message{Error: msg},
+		data:   types.BasicResponse{Error: msg},
 	}
 }
 
 func unknownMethodError() *Response {
 	return &Response{
 		status: http.StatusBadRequest,
-		data:   message{Error: "unknown method"},
+		data:   types.BasicResponse{Error: "unknown method"},
 	}
 }
 
@@ -105,44 +106,47 @@ func taskHandler(callme *app.CallMe, r *http.Request) *Response {
 		// TODO:
 		return &Response{
 			status: http.StatusNotImplemented,
-			data:   message{Error: "not yet implemented"},
+			data:   types.BasicResponse{Error: "not yet implemented"},
 		}
 	case "PUT":
-		// new, empty instance
-		t := task.New()
-		// load the user provided data on to it
-		err := json.Unmarshal(payload, &t)
+		tr := types.CreateTaskRequest{}
+		// try to parse the payload and build a task request instance
+		err := json.Unmarshal(payload, &tr)
 		if err != nil {
 			// this error is safe (and useful) to return to the client
 			return badRequestError(err.Error())
 		}
-		// validate input data
-		err = t.IsValid()
-		if err != nil {
+
+		// create a Task instance from the request
+		t := task.NewFromCreateRequest(tr)
+		// validate the input and make sure to convert a relative time specification into a Unix timestamp
+		if err := t.ValidateAndNormalize(); err != nil {
 			return badRequestError(err.Error())
 		}
 
+		// try to create the task
 		id, err := callme.CreateTask(t)
 		if err != nil {
 			callme.Logger.Error("Failed to create task", zap.Error(err))
 			return internalServerError(err.Error())
 		}
 
+		// we successfully created the task, return the unique ID
 		return &Response{
 			status: http.StatusOK,
-			data:   createTaskResponse{TaskID: id},
+			data:   types.CreateTaskResponse{TaskID: id},
 		}
 	case "POST":
 		// TODO: (update)
 		return &Response{
 			status: http.StatusNotImplemented,
-			data:   message{Error: "not yet implemented"},
+			data:   types.BasicResponse{Error: "not yet implemented"},
 		}
 	case "DELETE":
 		// TODO:
 		return &Response{
 			status: http.StatusNotImplemented,
-			data:   message{Error: "not yet implemented"},
+			data:   types.BasicResponse{Error: "not yet implemented"},
 		}
 	default:
 		return unknownMethodError()
@@ -183,7 +187,7 @@ func rescheduleHandler(callme *app.CallMe, r *http.Request) *Response {
 		if err != nil {
 			return &Response{
 				status: http.StatusBadRequest,
-				data:   message{Error: err.Error()},
+				data:   types.BasicResponse{Error: err.Error()},
 			}
 		}
 	}
@@ -201,7 +205,7 @@ func rescheduleHandler(callme *app.CallMe, r *http.Request) *Response {
 	if err != nil {
 		return &Response{
 			status: http.StatusInternalServerError,
-			data:   message{Error: err.Error()},
+			data:   types.BasicResponse{Error: err.Error()},
 		}
 	}
 

@@ -210,9 +210,6 @@ func (c *CallMe) Catchup() {
 func (c *CallMe) CreateTask(t task.Task) (string, error) {
 	c.Logger.Debug("Creating task", zap.String("task", t.String()))
 
-	t.NormalizeTriggerAt()
-	t.NormalizeTag()
-
 	return c.UpsertTask(t)
 }
 
@@ -447,6 +444,9 @@ func (c *CallMe) statusAllTasks(startFrom task.Task, futureOnly bool) (Status, e
 // UpsertTask adds or replaces a task in DynamoDB. It returns a string that uniquely identifies
 // the task and may be used to query its status or an error.
 func (c *CallMe) UpsertTask(tsk task.Task) (string, error) {
+	// make sure the Task instance is ready for Marshal
+	tsk.PrepareForDynamoDB()
+
 	item, err := dynamodbattribute.MarshalMap(tsk)
 	if err != nil {
 		c.Logger.Error("Failed to update task on DynamoDB: MapMarshal", zap.Error(err))

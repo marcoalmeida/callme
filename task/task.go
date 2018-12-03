@@ -133,8 +133,15 @@ func (t *Task) NormalizeTriggerAt() error {
 	relative := t.TriggerAt[:1] == "+"
 	if relative {
 		parts := reValidTriggerAt.FindStringSubmatch(t.TriggerAt)
+		if len(parts) != 3 {
+			return errors.New("relative time specification does not match " + reValidTriggerAt.String())
+		}
+
 		spec := parts[2]
-		inputTime, _ := strconv.Atoi(parts[1])
+		inputTime, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return err
+		}
 		switch spec {
 		case "m":
 			t.TriggerAt = strconv.FormatInt(now+int64(inputTime)*60, 10)
@@ -143,7 +150,7 @@ func (t *Task) NormalizeTriggerAt() error {
 		case "d":
 			t.TriggerAt = strconv.FormatInt(now+int64(inputTime)*86400, 10)
 		default:
-			return errors.New("relative time specification does not match " + reValidTriggerAt.String())
+			return errors.New("invalid relative time specifier")
 		}
 	} else {
 		// triggerAt is a Unix time stamp --> check for errors
@@ -164,50 +171,6 @@ func (t *Task) NormalizeTriggerAt() error {
 	// all good
 	return nil
 }
-
-//// isValidTriggerAt returns nil iff triggerAt is a valid time specification
-//func isValidTriggerAt(triggerAt string) error {
-//	// Unix timestamps (now and in the future) have way more than 3 characters;
-//	// a valid format is of the form `+<int><time_identifier>`;
-//	// neither form can be less than 3 chars
-//	if len(triggerAt) < 3 {
-//		return errors.New("invalid time specification")
-//	}
-//
-//	// current minute
-//	now := util.GetUnixMinute()
-//
-//	// are we being given a Unix time stamp or a relative time format?
-//	// relative time specifications start with +
-//	relative := triggerAt[:1] == "+"
-//	if relative {
-//		parts := reValidTriggerAt.FindStringSubmatch(triggerAt)
-//		if len(parts) != 3 {
-//			return errors.New("relative time specification does not match " + reValidTriggerAt.String())
-//		}
-//		_, err := strconv.Atoi(parts[1])
-//		if err != nil {
-//			return errors.New("invalid relative time: " +  err.Error())
-//		}
-//	} else {
-//		// triggerAt is a Unix time stamp --> check for errors
-//		inputTime, err := strconv.Atoi(triggerAt)
-//		if err != nil {
-//			return errors.New("invalid Unix timestamp")
-//		}
-//		// enforce time with 1-minute resolution
-//		if inputTime%60 != 0 {
-//			return errors.New("timestamp must be on 1-minute resolution")
-//		}
-//		// make sure it's in the future
-//		if int64(inputTime) <= now {
-//			return errors.New("timestamp must be in the future")
-//		}
-//	}
-//
-//	// all good
-//	return nil
-//}
 
 // validateTag returns nil iff tag is an alphanumeric string
 func isValidTag(tag string) error {

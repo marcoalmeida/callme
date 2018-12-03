@@ -23,38 +23,6 @@ func Test_isValidTag(t *testing.T) {
 	}
 }
 
-func Test_isValidTriggerAt(t *testing.T) {
-	// valid (2038 or something like that)
-	if err := isValidTriggerAt("2174245620"); err != nil {
-		t.Error("Expected to succeed (Unix time stamp), failed with", err)
-	}
-
-	for _, relativeTime := range []string{"+1d", "+24h", "+1440m"} {
-		if err := isValidTriggerAt(relativeTime); err != nil {
-			t.Error("Expected to succeed with relative time", relativeTime, "failed with", err)
-		}
-	}
-
-	// error: bad input
-	for _, input := range []string{"", "+", "+m", "+6", "6h", "+6z", "+1k", "112a"} {
-		if err := isValidTriggerAt(input); err == nil {
-			t.Error("Expected to fail with bad input", input)
-		}
-	}
-
-	// not in the future
-	if err := isValidTriggerAt("1227560820"); err == nil {
-		t.Error("Expected to fail (past)")
-	}
-
-	// future but not 1-minute resolution
-
-	if err := isValidTriggerAt("2174245625"); err == nil {
-		t.Error("Expected to fail (not 1-minute)")
-	}
-
-}
-
 func TestTask_NormalizeTriggerAt(t *testing.T) {
 	tsk := New()
 
@@ -64,7 +32,9 @@ func TestTask_NormalizeTriggerAt(t *testing.T) {
 	expect := strconv.FormatInt(currentMinute+86400, 10)
 	for _, relativeTime := range []string{"+1d", "+24h", "+1440m"} {
 		tsk.TriggerAt = relativeTime
-		tsk.NormalizeTriggerAt()
+		if err := tsk.NormalizeTriggerAt(); err != nil {
+			t.Error(err)
+		}
 		if tsk.TriggerAt != expect {
 			t.Error("Expected", expect, "on", relativeTime, "got", tsk.TriggerAt)
 		}
@@ -72,24 +42,43 @@ func TestTask_NormalizeTriggerAt(t *testing.T) {
 
 	// no-op with a Unix timestamp
 	tsk.TriggerAt = expect
-	tsk.NormalizeTriggerAt()
+	if err := tsk.NormalizeTriggerAt(); err != nil {
+		t.Error(err)
+	}
 	if tsk.TriggerAt != expect {
 		t.Error("Expected no-op with", expect, "on", "got", tsk.TriggerAt)
 	}
-}
 
-func TestTask_NormalizeTag(t *testing.T) {
-	tsk := New()
-
-	tsk.Tag = ""
-	tsk.NormalizeTag()
-	if tsk.Tag[:1] != delimiterTagUUID {
-		t.Error("Expected empty tag followed by UUID delimiter, got", tsk.Tag[:1])
+	// valid (2038 or something like that)
+	tsk.TriggerAt = "2174245620"
+	if err := tsk.NormalizeTriggerAt(); err != nil {
+		t.Error("Expected to succeed (Unix time stamp), failed with", err)
 	}
 
-	tsk.Tag = "abc"
-	tsk.NormalizeTag()
-	if tsk.Tag[:4] != "abc"+delimiterTagUUID {
-		t.Error("Expected full tag followed by UUID delimiter, got", tsk.Tag[:4])
+	for _, relativeTime := range []string{"+1d", "+24h", "+1440m"} {
+		tsk.TriggerAt = relativeTime
+		if err := tsk.NormalizeTriggerAt(); err != nil {
+			t.Error("Expected to succeed with relative time", relativeTime, "failed with", err)
+		}
+	}
+
+	// error: bad input
+	for _, input := range []string{"", "+", "+m", "+6", "6h", "+6z", "+1k", "112a"} {
+		tsk.TriggerAt = input
+		if err := tsk.NormalizeTriggerAt(); err == nil {
+			t.Error("Expected to fail with bad input", input)
+		}
+	}
+
+	// not in the future
+	tsk.TriggerAt = "1227560820"
+	if err := tsk.NormalizeTriggerAt(); err == nil {
+		t.Error("Expected to fail (past)")
+	}
+
+	// future but not 1-minute resolution
+	tsk.TriggerAt = "2174245625"
+	if err := tsk.NormalizeTriggerAt(); err == nil {
+		t.Error("Expected to fail (not 1-minute)")
 	}
 }

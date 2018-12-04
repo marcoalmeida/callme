@@ -207,7 +207,7 @@ func (c *CallMe) Catchup() {
 	}
 }
 
-func (c *CallMe) CreateTask(t task.Task) (string, error) {
+func (c *CallMe) CreateTask(t task.Task) (task.TaskID, error) {
 	c.Logger.Debug("Creating task", zap.String("task", t.String()))
 
 	return c.UpsertTask(t)
@@ -443,11 +443,11 @@ func (c *CallMe) statusAllTasks(startFrom task.Task, futureOnly bool) (Status, e
 
 // UpsertTask adds or replaces a task in DynamoDB. It returns a string that uniquely identifies
 // the task and may be used to query its status or an error.
-func (c *CallMe) UpsertTask(tsk task.Task) (string, error) {
+func (c *CallMe) UpsertTask(t task.Task) (task.TaskID, error) {
 	// make sure the Task instance is ready for Marshal
-	tsk.PrepareForDynamoDB()
+	t.PrepareForDynamoDB()
 
-	item, err := dynamodbattribute.MarshalMap(tsk)
+	item, err := dynamodbattribute.MarshalMap(t)
 	if err != nil {
 		c.Logger.Error("Failed to update task on DynamoDB: MapMarshal", zap.Error(err))
 		return "", errors.New("invalid JSON")
@@ -460,12 +460,12 @@ func (c *CallMe) UpsertTask(tsk task.Task) (string, error) {
 	_, err = c.ddb.PutItem(input)
 	if err != nil {
 		msg := "Failed to store task"
-		c.Logger.Error(msg, zap.Error(err), zap.String("task", tsk.String()))
+		c.Logger.Error(msg, zap.Error(err), zap.String("task", t.String()))
 		return "", errors.New(strings.ToLower(msg))
 	}
 
-	c.Logger.Debug("Successfully upserted task", zap.String("task", tsk.String()))
-	return tsk.UniqueID(), nil
+	c.Logger.Debug("Successfully upserted task", zap.String("task", t.String()))
+	return t.UniqueID(), nil
 }
 
 // create a Task instance from a DynamoDB Item

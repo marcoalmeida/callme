@@ -55,6 +55,13 @@ type Task struct {
 	ExecutedAt         string `json:"executed_at,omitempty"`
 }
 
+// TaskID is the type for the unique identifier of a Task instance
+type TaskID string
+
+func (tid TaskID) String() string {
+	return string(tid)
+}
+
 // New returns a new Task instance with default values set
 func New() Task {
 	t := Task{}
@@ -100,8 +107,8 @@ func (t *Task) PrepareForDynamoDB() {
 }
 
 // UniqueID returns a string that uniquely identifies a task
-func (t Task) UniqueID() string {
-	return fmt.Sprintf("%s%s%s", t.TagUUID, delimiterUniqueID, t.TriggerAt)
+func (t Task) UniqueID() TaskID {
+	return TaskID(fmt.Sprintf("%s%s%s", t.TagUUID, delimiterUniqueID, t.TriggerAt))
 }
 
 func ParseUniqueID(id string) (Task, error) {

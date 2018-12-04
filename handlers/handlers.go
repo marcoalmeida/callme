@@ -134,7 +134,7 @@ func taskHandler(callme *app.CallMe, r *http.Request) *Response {
 		// we successfully created the task, return the unique ID
 		return &Response{
 			status: http.StatusOK,
-			data:   types.CreateTaskResponse{TaskID: id},
+			data:   types.CreateTaskResponse{TaskID: taskID},
 		}
 	case "POST":
 		// TODO: (update)

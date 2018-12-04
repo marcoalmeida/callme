@@ -27,9 +27,9 @@ const (
 	defaultExpectedHTTPStatus = 200
 	defaultMaxDelay           = 10
 	// maximum number of bytes from the response to store
-	maxResponseBytes  = 256
-	delimiterTagUUID  = "+"
-	delimiterUniqueID = "@"
+	maxResponseBytes = 256
+	delimiterTagUUID = "+"
+	delimiterTaskID  = "@"
 )
 
 // avoid compiling the regular expressions several times per request
@@ -55,9 +55,15 @@ type Task struct {
 	ExecutedAt         string `json:"executed_at,omitempty"`
 }
 
+// String implements the Stringer interface for Task
+func (t Task) String() string {
+	return fmt.Sprintf("%s -> %s", t.GetID(), t.CallbackEndpoint)
+}
+
 // TaskID is the type for the unique identifier of a Task instance
 type TaskID string
 
+// String implements the Stringer interface for TaskID
 func (tid TaskID) String() string {
 	return string(tid)
 }
@@ -95,10 +101,6 @@ func NewFromCreateRequest(tr types.CreateTaskRequest) Task {
 	return t
 }
 
-func (t Task) String() string {
-	return fmt.Sprintf("%s -> %s", t.UniqueID(), t.CallbackEndpoint)
-}
-
 // PrepareForDynamoDB updates all the necessary fields so that the Task instance is ready for being
 // written to DynamoDB
 func (t *Task) PrepareForDynamoDB() {
@@ -106,13 +108,33 @@ func (t *Task) PrepareForDynamoDB() {
 	t.TagUUID = fmt.Sprintf("%s%s%s", t.Tag, delimiterTagUUID, t.UUID)
 }
 
-// UniqueID returns a string that uniquely identifies a task
-func (t Task) UniqueID() TaskID {
-	return TaskID(fmt.Sprintf("%s%s%s", t.TagUUID, delimiterUniqueID, t.TriggerAt))
+// GetID returns a string that uniquely identifies a task
+func (t Task) GetID() TaskID {
+	return TaskID(fmt.Sprintf("%s%s%s", t.TagUUID, delimiterTaskID, t.TriggerAt))
+}
+
+// IsValid returns true iff the TaskID tid
+func (tid TaskID) IsValid() bool {
+	parts := strings.Split(string(tid), delimiterTaskID)
+
+	// there should be 2 parts to the ID: the Tag+UUID and the TriggerAt Unix timestamp
+	if len(parts) != 2 {
+		return false
+	}
+
+	// make sure the timestamp is an integer
+	_, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return false
+	}
+
+	// validate the tag+uuid component
+	tagUUIDParts := strings.Split(parts[0], delimiterTagUUID)
+	return len(tagUUIDParts) == 2
 }
 
 func ParseUniqueID(id string) (Task, error) {
-	parts := strings.Split(id, delimiterUniqueID)
+	parts := strings.Split(id, delimiterTaskID)
 	if len(parts) != 2 {
 		return Task{}, errors.New("expected exactly 2 components on the unique ID")
 	}

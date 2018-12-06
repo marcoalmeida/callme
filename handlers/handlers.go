@@ -103,10 +103,40 @@ func taskHandler(callme *app.CallMe, r *http.Request) *Response {
 
 	switch r.Method {
 	case "GET":
-		// TODO:
+		// - specific task:              /task/<task_id>
+		// - all tasks with a given tag: /task/?tag=<tag>[?start_after=<task_id>&future_only=true]
+		// - all tasks:                  /task/[?start_after=<task_id>&future_only=true]
+
+		// get and validate the task ID
+		taskID := r.URL.Path[len("/task/"):]
+		if taskID != "" && !task.IsValidTaskID(taskID) {
+			return badRequestError("invalid task ID")
+		}
+		// get and validate the start_after parameter, used for pagination
+		startAfter := r.Form.Get("start_after")
+		if startAfter != "" && !task.IsValidTaskID(startAfter) {
+			return badRequestError("invalid task ID for start_after")
+		}
+		// get the tag
+		tag := r.Form.Get("tag")
+		// in case the caller just wants us to list tasks scheduled at some point in the future
+		_, futureOnly := r.Form["future_only"]
+
+		callme.Logger.Debug(
+			"Retrieving task status",
+			zap.String("task_id", taskID),
+			zap.String("start_after", startAfter),
+			zap.String("tag", tag),
+			zap.Bool("future_only", futureOnly),
+		)
+		status, err := callme.Status(taskID, tag, startAfter, futureOnly)
+		if err != nil {
+			return internalServerError(err.Error())
+		}
+
 		return &Response{
-			status: http.StatusNotImplemented,
-			data:   types.BasicResponse{Error: "not yet implemented"},
+			status: http.StatusOK,
+			data:   status,
 		}
 	case "PUT":
 		tr := types.CreateTaskRequest{}
@@ -125,7 +155,7 @@ func taskHandler(callme *app.CallMe, r *http.Request) *Response {
 		}
 
 		// try to create the task
-		id, err := callme.CreateTask(t)
+		taskID, err := callme.CreateTask(t)
 		if err != nil {
 			callme.Logger.Error("Failed to create task", zap.Error(err))
 			return internalServerError(err.Error())
@@ -254,7 +284,7 @@ func statusHandler(callme *app.CallMe, r *http.Request) *Response {
 		zap.Bool("future_only", futureOnly),
 		zap.String("start_from", startFrom.String()),
 	)
-	status, err := callme.Status(tsk, startFrom, futureOnly)
+	status, err := callme.StatusOld(tsk, startFrom, futureOnly)
 	if err != nil {
 		return internalServerError(err.Error())
 	}

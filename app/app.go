@@ -50,8 +50,7 @@ type CallMe struct {
 // status of all tasks (submitted, running, succeeded, failed, attempted retries, return code/body from the callback)
 type Status struct {
 	Tasks []task.Task `json:"tasks"`
-	// TODO: make this easier for the client, something that just be directly passed to the next call
-	Next task.Task `json:"next"`
+	Last  string      `json:"last"`
 }
 
 // New creates and returns a pointer to a new CallMe instance
@@ -207,7 +206,7 @@ func (c *CallMe) Catchup() {
 	}
 }
 
-func (c *CallMe) CreateTask(t task.Task) (task.TaskID, error) {
+func (c *CallMe) CreateTask(t task.Task) (string, error) {
 	c.Logger.Debug("Creating task", zap.String("task", t.String()))
 
 	return c.UpsertTask(t)
@@ -222,8 +221,8 @@ func (c *CallMe) Reschedule(tsk task.Task, triggerAt string, all bool) ([]task.T
 	tasks := make([]task.Task, 0)
 
 	if tsk.TriggerAt != "" && tsk.Tag != "" {
-		// single task at a specific time -- we can re-use statusByTaskKey
-		status, err := c.statusByTaskKey(tsk)
+		// single task at a specific time -- we can re-use statusByTaskID
+		status, err := c.statusByTaskID(tsk)
 		if err != nil {
 			return nil, err
 		}
@@ -233,11 +232,12 @@ func (c *CallMe) Reschedule(tsk task.Task, triggerAt string, all bool) ([]task.T
 			tasks = status.Tasks
 		}
 	} else {
-		// task identified by name, we need all its entries -- can re-use statusByTaskName and update all entries
+		// task identified by name, we need all its entries -- can re-use statusByTag and update all entries
 		next := task.Task{}
 		// collect all tasks
 		for {
-			result, err := c.statusByTaskName(tsk, next, false)
+			// TODO
+			result, err := c.statusByTag(tsk.String(), next, false)
 			if err != nil {
 				return nil, err
 			}
@@ -248,13 +248,13 @@ func (c *CallMe) Reschedule(tsk task.Task, triggerAt string, all bool) ([]task.T
 					tasks = append(tasks, t)
 				}
 			}
-
-			// check to see if we're done here
-			if result.Next == (task.Task{}) {
-				break
-			} else {
-				next = result.Next
-			}
+			// TODO
+			//// check to see if we're done here
+			//if result.Last == (task.Task{}) {
+			//	break
+			//} else {
+			//	next = result.Last
+			//}
 		}
 	}
 
@@ -270,34 +270,51 @@ func (c *CallMe) Reschedule(tsk task.Task, triggerAt string, all bool) ([]task.T
 	return tasks, nil
 }
 
-// Status returns the status of a specific task at a specific schedule,
+// Status returns the status of a specific task, all tasks with a given tag,
+// or all tasks currently scheduled. It supports pagination via startFrom and the next field in the returned JSON.
+// It also allows to filter out all past entries if futureOnly is set to true.
+func (c *CallMe) Status(taskID string, tag string, startAfter string, futureOnly bool) (Status, error) {
+	// single task at a specific time: we can collect the status with a simple call to GetItem
+	if taskID != "" {
+		t := task.NewFromID(taskID)
+		return c.statusByTaskID(t)
+	}
+
+	// no task ID, but we do have a tag: we can use the inverted index and Query the table, no need to Scan
+	if tag != "" {
+		return c.statusByTag(tag, task.NewFromID(startAfter), futureOnly)
+	}
+
+	return Status{}, nil
+}
+
+// StatusOld returns the status of a specific task at a specific schedule,
 // all entries of a given task (identified by its name),
 // or all tasks currently scheduled. It supports pagination via startFrom and the next field in the returned JSON.
 // It also allows to filter out all past entries if futureOnly is set to true.
-func (c *CallMe) Status(tsk task.Task, startFrom task.Task, futureOnly bool) (Status, error) {
+func (c *CallMe) StatusOld(tsk task.Task, startFrom task.Task, futureOnly bool) (Status, error) {
 	// single task at a specific time -- we can collect the status with a simple call to GetItem
 	if tsk.TriggerAt != "" && tsk.Tag != "" {
-		return c.statusByTaskKey(tsk)
+		return c.statusByTaskID(tsk)
 	}
 
-	// single task, but all entries -- we can use the inverted index and Query the table, avoiding a Scan
-	if tsk.Tag != "" {
-		return c.statusByTaskName(tsk, startFrom, futureOnly)
-	}
+	//// single task, but all entries -- we can use the inverted index and Query the table, avoiding a Scan
+	//if tsk.Tag != "" {
+	//	return c.statusByTag(tsk, startFrom, futureOnly)
+	//}
 
 	// we have nothing to help us identify a unique entry or the set of entries for a given task
 	// just return them all (paginated)
 	return c.statusAllTasks(startFrom, futureOnly)
 }
 
-func (c *CallMe) statusByTaskKey(tsk task.Task) (Status, error) {
-	status := Status{Tasks: make([]task.Task, 0)}
-
+func (c *CallMe) statusByTaskID(t task.Task) (Status, error) {
 	input := &dynamodb.GetItemInput{
 		TableName: aws.String(c.DynamoDBTable),
+		//Key:       key,
 		Key: map[string]*dynamodb.AttributeValue{
-			"trigger_at": {S: aws.String(tsk.TriggerAt)},
-			"task_name":  {S: aws.String(tsk.Tag)},
+			"trigger_at": {S: aws.String(t.TriggerAt)},
+			"tag":        {S: aws.String(t.Tag)},
 		},
 	}
 	result, err := c.ddb.GetItem(input)
@@ -305,34 +322,35 @@ func (c *CallMe) statusByTaskKey(tsk task.Task) (Status, error) {
 		c.Logger.Error(
 			"Failed to get task status",
 			zap.Error(err),
-			zap.String("task_name", tsk.Tag),
-			zap.String("trigger_at", tsk.TriggerAt))
+			zap.String("tag", t.Tag),
+			zap.String("trigger_at", t.TriggerAt))
 		return Status{}, errors.New("failed to retrieve the task's status")
 	}
 	if len(result.Item) == 0 {
 		return Status{}, errors.New("task not found")
 	}
 
-	// we found it, let's add it to the list and return
-	status.Tasks = append(status.Tasks, c.taskFromDynamoDB(result.Item))
+	// there's only one task to return here
+	status := Status{Tasks: make([]task.Task, 1)}
+	status.Tasks[0] = c.taskFromDynamoDB(result.Item)
 
 	return status, nil
 }
 
-// return the status of all entries for a given task, identified by name
-// use the inverted index to call Query instead of doing a full table scan
-func (c *CallMe) statusByTaskName(tsk task.Task, startFrom task.Task, futureOnly bool) (Status, error) {
+// return the status of all entries for a given task with a given tag
+// use the inverted index and call Query instead of doing a full table scan
+func (c *CallMe) statusByTag(tag string, startAfter task.Task, futureOnly bool) (Status, error) {
 	status := Status{Tasks: make([]task.Task, 0)}
 
 	input := &dynamodb.QueryInput{
 		TableName: aws.String(c.DynamoDBTable),
 		IndexName: aws.String(c.DynamoDBIndex),
 		ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
-			":name": {
-				S: aws.String(tsk.Tag),
+			":tag": {
+				S: aws.String(tag),
 			},
 		},
-		KeyConditionExpression: aws.String("task_name = :name"),
+		KeyConditionExpression: aws.String("tag = :tag"),
 	}
 
 	// filter out past tasks: add an attribute value for the current time and
@@ -341,23 +359,23 @@ func (c *CallMe) statusByTaskName(tsk task.Task, startFrom task.Task, futureOnly
 		input.ExpressionAttributeValues[":now"] = &dynamodb.AttributeValue{
 			S: aws.String(strconv.FormatInt(time.Now().Unix(), 10)),
 		}
-		input.KeyConditionExpression = aws.String("task_name = :name AND trigger_at >= :now")
+		input.KeyConditionExpression = aws.String("tag = :tag AND trigger_at >= :now")
 	}
 
 	// we may be paginating this
-	if startFrom.TriggerAt != "" && startFrom.Tag != "" {
+	if startAfter.TriggerAt != "" && startAfter.Tag != "" {
 		input.ExclusiveStartKey = map[string]*dynamodb.AttributeValue{
-			"task_name":  {S: aws.String(startFrom.Tag)},
-			"trigger_at": {S: aws.String(startFrom.TriggerAt)},
+			"tag":        {S: aws.String(startAfter.Tag)},
+			"trigger_at": {S: aws.String(startAfter.TriggerAt)},
 		}
 	}
 
 	result, err := c.ddb.Query(input)
 	if err != nil {
 		c.Logger.Error(
-			"Failed to Query the status of a task by name",
+			"Failed to Query the status of a task by tag",
 			zap.Error(err),
-			zap.String("task_name", tsk.Tag),
+			zap.String("tag", tag),
 			zap.Bool("future_only", futureOnly),
 		)
 		return status, errors.New("failed to retrieve the task's status")
@@ -374,7 +392,7 @@ func (c *CallMe) statusByTaskName(tsk task.Task, startFrom task.Task, futureOnly
 	if err != nil {
 		c.Logger.Error("Failed to UnmarshalMap last evaluated key", zap.Error(err))
 	} else {
-		status.Next = next
+		status.Last = next.GetID()
 	}
 
 	return status, nil
@@ -434,7 +452,7 @@ func (c *CallMe) statusAllTasks(startFrom task.Task, futureOnly bool) (Status, e
 		if err != nil {
 			c.Logger.Error("Failed to UnmarshalMap last evaluated key", zap.Error(err))
 		} else {
-			status.Next = next
+			status.Last = next.GetID()
 		}
 	}
 
@@ -443,10 +461,7 @@ func (c *CallMe) statusAllTasks(startFrom task.Task, futureOnly bool) (Status, e
 
 // UpsertTask adds or replaces a task in DynamoDB. It returns a string that uniquely identifies
 // the task and may be used to query its status or an error.
-func (c *CallMe) UpsertTask(t task.Task) (task.TaskID, error) {
-	// make sure the Task instance is ready for Marshal
-	t.PrepareForDynamoDB()
-
+func (c *CallMe) UpsertTask(t task.Task) (string, error) {
 	item, err := dynamodbattribute.MarshalMap(t)
 	if err != nil {
 		c.Logger.Error("Failed to update task on DynamoDB: MapMarshal", zap.Error(err))
@@ -465,7 +480,7 @@ func (c *CallMe) UpsertTask(t task.Task) (task.TaskID, error) {
 	}
 
 	c.Logger.Debug("Successfully upserted task", zap.String("task", t.String()))
-	return t.UniqueID(), nil
+	return t.GetID(), nil
 }
 
 // create a Task instance from a DynamoDB Item

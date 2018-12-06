@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/marcoalmeida/callme/types"
 	"github.com/marcoalmeida/callme/util"
 	"go.uber.org/zap"
@@ -28,21 +27,18 @@ const (
 	defaultMaxDelay           = 10
 	// maximum number of bytes from the response to store
 	maxResponseBytes = 256
-	delimiterTagUUID = "+"
 	delimiterTaskID  = "@"
 )
 
 // avoid compiling the regular expressions several times per request
 var reValidTriggerAt = regexp.MustCompile("[+]([0-9]+)([mhd])")
-var reValidTag = regexp.MustCompile("[a-zA-Z0-9]*")
+var reValidTag = regexp.MustCompile("[a-zA-Z0-9]+")
 
 // Task represents a unit of work to be executed at some point in the future.
 // It should directly map to a row in DynamoDB
 type Task struct {
 	TriggerAt          string `json:"trigger_at"` // hash key
-	UUID               string `json:"uuid"`
-	Tag                string `json:"tag,omitempty"`
-	TagUUID            string `json:"tag_uuid"` // range key
+	Tag                string `json:"tag"`        // range key
 	Payload            string `json:"payload,omitempty"`
 	CallbackEndpoint   string `json:"callback"`
 	CallbackMethod     string `json:"callback_method,omitempty"`
@@ -55,30 +51,12 @@ type Task struct {
 	ExecutedAt         string `json:"executed_at,omitempty"`
 }
 
-// String implements the Stringer interface for Task
-func (t Task) String() string {
-	return fmt.Sprintf("%s -> %s", t.GetID(), t.CallbackEndpoint)
-}
-
-// TaskID is the type for the unique identifier of a Task instance
-type TaskID string
-
-// String implements the Stringer interface for TaskID
-func (tid TaskID) String() string {
-	return string(tid)
-}
-
 // New returns a new Task instance with default values set
 func New() Task {
 	t := Task{}
 
 	// make sure all optional fields are set
 	t.setDefaults()
-
-	// generate a UUID for this task
-	u := uuid.New()
-	// remove the - characters from the UUID
-	t.UUID = strings.Replace(u.String(), "-", "", -1)
 
 	return t
 }
@@ -101,20 +79,33 @@ func NewFromCreateRequest(tr types.CreateTaskRequest) Task {
 	return t
 }
 
-// PrepareForDynamoDB updates all the necessary fields so that the Task instance is ready for being
-// written to DynamoDB
-func (t *Task) PrepareForDynamoDB() {
-	// right now only the range key needs to be set, as we're using .TriggerAt as the hash key
-	t.TagUUID = fmt.Sprintf("%s%s%s", t.Tag, delimiterTagUUID, t.UUID)
+// NewFromID returns a task instance from a task ID. If the task ID is not valid an empty Task instance is returned.
+func NewFromID(tid string) Task {
+	if !IsValidTaskID(tid) {
+		return Task{}
+	}
+
+	t := New()
+
+	parts := strings.Split(string(tid), delimiterTaskID)
+	t.Tag = parts[0]
+	t.TriggerAt = parts[1]
+
+	return t
+}
+
+// String implements the Stringer interface for Task
+func (t Task) String() string {
+	return fmt.Sprintf("%s -> %s", t.GetID(), t.CallbackEndpoint)
 }
 
 // GetID returns a string that uniquely identifies a task
-func (t Task) GetID() TaskID {
-	return TaskID(fmt.Sprintf("%s%s%s", t.TagUUID, delimiterTaskID, t.TriggerAt))
+func (t Task) GetID() string {
+	return fmt.Sprintf("%s%s%s", t.Tag, delimiterTaskID, t.TriggerAt)
 }
 
 // IsValid returns true iff the TaskID tid
-func (tid TaskID) IsValid() bool {
+func IsValidTaskID(tid string) bool {
 	parts := strings.Split(string(tid), delimiterTaskID)
 
 	// there should be 2 parts to the ID: the Tag+UUID and the TriggerAt Unix timestamp
@@ -128,18 +119,7 @@ func (tid TaskID) IsValid() bool {
 		return false
 	}
 
-	// validate the tag+uuid component
-	tagUUIDParts := strings.Split(parts[0], delimiterTagUUID)
-	return len(tagUUIDParts) == 2
-}
-
-func ParseUniqueID(id string) (Task, error) {
-	parts := strings.Split(id, delimiterTaskID)
-	if len(parts) != 2 {
-		return Task{}, errors.New("expected exactly 2 components on the unique ID")
-	}
-
-	return Task{TriggerAt: parts[1], Tag: parts[0]}, nil
+	return true
 }
 
 // NormalizeTriggerAt makes sure the .TriggerAt field is a valid Unix timestamp with 1-minute resolution.
@@ -277,7 +257,7 @@ func (t *Task) setDefaults() {
 
 // DoCallback hits the callback endpoint, with the provided payload,
 // using the specified HTTP method. On failure it will retry, using exponential backoff logic,
-// up until the number of times set. Finally, it will update the Status and ResponseBody fields.
+// up until the number of times set. Finally, it will update the StatusOld and ResponseBody fields.
 func (t Task) DoCallback(httpClient *http.Client, updateTask func(Task) (string, error), logger *zap.Logger) {
 	var status int
 	var response []byte

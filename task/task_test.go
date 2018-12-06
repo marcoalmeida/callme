@@ -85,15 +85,15 @@ func TestTask_NormalizeTriggerAt(t *testing.T) {
 
 func TestTaskID_IsValid(t *testing.T) {
 	// valid
-	for _, tid := range []TaskID{"+uuid@12345", "tag+uuid@12345"} {
-		if !tid.IsValid() {
+	for _, tid := range []string{"+uuid@12345", "tag+uuid@12345"} {
+		if !IsValidTaskID(tid) {
 			t.Error("Expected", tid, "to be a valid task ID")
 		}
 	}
 
 	// invalid
-	for _, tid := range []TaskID{"", "uuid", "uuid@12345", "tag+uuid@12d345", "tag+uu+id@12345", "@34", "@"} {
-		if tid.IsValid() {
+	for _, tid := range []string{"", "uuid", "uuid@12345", "tag+uuid@12d345", "tag+uu+id@12345", "@34", "@"} {
+		if IsValidTaskID(tid) {
 			t.Error("Expected", tid, "to be a invalid task ID")
 		}
 	}

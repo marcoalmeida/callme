@@ -113,6 +113,15 @@ func IsValidTaskID(tid string) bool {
 		return false
 	}
 
+	if parts[0] == "" {
+		return false
+	}
+
+	// validate the tag
+	if err := isValidTag(parts[0]); err != nil {
+		return false
+	}
+
 	// make sure the timestamp is an integer
 	_, err := strconv.Atoi(parts[1])
 	if err != nil {
@@ -183,11 +192,16 @@ func (t *Task) NormalizeTriggerAt() error {
 
 // validateTag returns nil iff tag is an alphanumeric string
 func isValidTag(tag string) error {
-	if len(reValidTag.FindAllString(tag, -1)) != 1 {
-		return errors.New("invalid tag: does not match " + reValidTag.String())
+	match := reValidTag.FindAllString(tag, -1)
+
+	// match must be a singleton and its only element equal to the tag
+	if len(match) == 1 {
+		if match[0] == tag {
+			return nil
+		}
 	}
 
-	return nil
+	return errors.New("invalid tag: does not match " + reValidTag.String())
 }
 
 // ValidateAndNormalize returns nil iff all fields in the task are valid.

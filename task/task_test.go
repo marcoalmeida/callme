@@ -9,7 +9,7 @@ import (
 
 func Test_isValidTag(t *testing.T) {
 	// valid tags
-	for _, tag := range []string{"", "a", "aB", "a1b", "1"} {
+	for _, tag := range []string{"a", "aB", "a1b", "1"} {
 		if err := isValidTag(tag); err != nil {
 			t.Error("Expected to succeed, failed on", tag)
 		}
@@ -83,16 +83,16 @@ func TestTask_NormalizeTriggerAt(t *testing.T) {
 	}
 }
 
-func TestTaskID_IsValid(t *testing.T) {
+func Test_IsValidTaskID(t *testing.T) {
 	// valid
-	for _, tid := range []string{"+uuid@12345", "tag+uuid@12345"} {
+	for _, tid := range []string{"tag@12345", "tag12A@12345"} {
 		if !IsValidTaskID(tid) {
 			t.Error("Expected", tid, "to be a valid task ID")
 		}
 	}
 
 	// invalid
-	for _, tid := range []string{"", "uuid", "uuid@12345", "tag+uuid@12d345", "tag+uu+id@12345", "@34", "@"} {
+	for _, tid := range []string{"", "@12345", "tag+@12d345", "tag+uu+id@12345", "@34", "@"} {
 		if IsValidTaskID(tid) {
 			t.Error("Expected", tid, "to be a invalid task ID")
 		}
